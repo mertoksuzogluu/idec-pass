@@ -44,6 +44,10 @@ pip install pyinstaller
 pyinstaller --onefile --windowed --name "IDEC_PLC_Password_Finder" idec_plc_password_auto.py
 ```
 
+## Kullanım Senaryosu (COM Port ile)
+
+Şifresini unuttuğunuz PLC’yi COM port ile bilgisayara bağlıyorsunuz; yazılımda (WindLDR) PLC’ye bağlanırken şifre isteniyor. Adım adım rehber için: **[KULLANIM_SENARYOSU.md](KULLANIM_SENARYOSU.md)** dosyasına bakın.
+
 ## Kullanım
 
 1. **Programı açın**
