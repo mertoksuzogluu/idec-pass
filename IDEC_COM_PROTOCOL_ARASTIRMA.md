@@ -4,6 +4,23 @@ Bu dosya, IDEC PLC (FC4A, MicroSmart) **programlama portu** (COM/RS232) protokol
 
 ---
 
+## FC4A ile Pentra (FC5A) Aynı mı?
+
+**Hayır. Farklı serilerdir.**
+
+| Özellik | **FC4A** (MicroSmart) | **Pentra** = **FC5A** (MicroSmart Pentra) |
+|--------|------------------------|-------------------------------------------|
+| **Seri adı** | MicroSmart (eski nesil) | MicroSmart **Pentra** |
+| **Ürün kodu** | FC4A-xxx (örn. FC4A-C16R2, FC4A-HPC3) | FC5A-xxx (örn. FC5A-C10R2) |
+| **Programlama** | Seri/USB, WindLDR | WindLDR; **gömülü Ethernet** (10/100 Mbps) |
+| **İletişim** | RS232 programlama portu, Modbus RTU/ASCII (kullanıcı) | Ethernet, Modbus TCP, port **2101** (şifre/programlama), seri RS232/RS485 |
+| **Şifre protokolü** | Seri port üzerinden; **dokümante değil** | Ethernet port 2101 üzerinden; [Capkj2/Idec-password-cracker](https://github.com/Capkj2/Idec-password-cracker) ile bilinen paket formatı |
+| **Durum** | Üretimden kalktı (end of life) | FC5A serisi de 2019’da üretimden kalktı |
+
+**Sonuç:** Bu projedeki **FC4A-HPC3** ile **Pentra (FC5A)** aynı cihaz değildir. Pentra modu (Ethernet 2101) sadece **FC5A MicroSmart Pentra** için geçerlidir. FC4A için şifre denemesi **WindLDR otomasyonu** veya (protokol bilinmediği için güvenilir olmayan) **COM deneysel** modu kullanılmalıdır.
+
+---
+
 ## Özet: Açık Protokol Dokümantasyonu Yok
 
 - **Programlama portu** (WindLDR’ın bağlandığı port) için **komut/çerçeve/paket formatı** resmi ve ücretsiz dokümanda **açıklanmıyor**.
@@ -67,8 +84,38 @@ Bu dosya, IDEC PLC (FC4A, MicroSmart) **programlama portu** (COM/RS232) protokol
 
 ---
 
+## IDEC Pentra (FC5A) – Açık Kaynak Protokol (Ethernet, port 2101)
+
+**Kaynak:** [Capkj2/Idec-password-cracker](https://github.com/Capkj2/Idec-password-cracker) (C++, Windows Winsock)  
+Açıklama: IDEC **Pentra** (yani **FC5A** MicroSmart Pentra) PLC’ler için brute-force şifre denemesi; **TCP port 2101** üzerinden çalışıyor. **FC4A ile aynı cihaz değildir** (bkz. yukarıdaki tablo).
+
+### Pentra protokolü özeti
+
+| Öğe | Değer |
+|-----|--------|
+| Taşıma | TCP, port **2101** (varsayılan) |
+| Paket uzunluğu | 18 bayt (binary) |
+| Şifre formatı | **Sayısal** (1–99999999); pakette sıfırla doldurulmuş hex olarak gömülü |
+| Preamble | Hex: `05 46 46 30 57 56 00 00 00 00 00 00 00 00` (ilk 12 hex karakter sabit; sonrası şifre alanı) |
+| Checksum | Paket hex string üzerinde: çift sıradaki karakterlerin XOR’u ^ 0x33, tek sıradakilerin XOR’u ^ 0x30; sonuç > 0x39 ise +0x07. Sonuna 0x30 + checksum 2 bayt + 0x0D eklenir. |
+
+### Yanıt kodları (PLC’den gelen)
+
+- **Geçerli şifre:** `06 30 31 30 33 37 0D` (ACK + "01037" + CR)
+- **Geçersiz şifre:** `06 30 31 32 30 35 33 30 0D` ("120530" + CR)
+- **Hatalı checksum:** `15 30 31 30 31 30 32 35 0D` (NAK + ...)
+
+### FC4A ile farkı
+
+- Bu protokol **sadece Pentra (FC5A)** için geçerlidir. **FC4A** farklı seridir; seri/USB + WindLDR ile programlanır, Ethernet 2101 protokolü FC4A için tanımlı değildir.
+- Bu projede **IDEC Pentra Ethernet (port 2101)** seçeneği yalnızca **FC5A MicroSmart Pentra** cihazları için kullanılmalıdır. FC4A-HPC3 için WindLDR veya COM (deneysel) modu kullanın.
+- Seri (COM) programlama portu için bu paket formatı kullanılmıyor; COM tarafı hâlâ dokümante değil.
+
+---
+
 ## Sonuç
 
 - **IDEC COM (programlama portu) protokolü** hâlâ **açık ve resmi dokümanda bulunamadı**.
+- **IDEC Pentra** için **Ethernet (port 2101)** üzerinde çalışan bir protokol [Capkj2/Idec-password-cracker](https://github.com/Capkj2/Idec-password-cracker) ile mevcut; sayısal şifre denemesi için bu projeye entegre edildi.
 - Doğru protokolü uygulayabilmek için ya **resmi doküman/IDEC desteği** ya da **seri trafik kaydı ile reverse engineering** gerekiyor.
 - Bu dosya, ileride protokol bulunduğunda veya yeni kaynak eklendiğinde güncellenebilir.

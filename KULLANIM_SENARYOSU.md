@@ -56,18 +56,21 @@ Bu rehber, **şifresini unuttuğunuz IDEC PLC**’ye COM port ile bağlanıp, ya
 
 ## Adım 4: Programda Ayarlar
 
-1. **Bağlantı Tipi:** **USB/Serial** seçili kalsın.
-2. **COM Port / IP:** Az önce not aldığınız portu yazın (örn: **COM3**).
-3. **COM Portları Listele** ile portları kontrol edebilirsiniz.
-4. **Baud Rate:** Genelde **9600** (IDEC için yaygın). Yazılımınız farklı diyorsa onu seçin.
+1. **Bağlantı Tipi:**  
+   - **WindLDR'da otomatik dene (önerilen):** WindLDR açıkken şifre penceresi açık olsun; program şifreleri orada otomatik dener. COM port gerekmez.  
+   - **USB/Serial (deneysel):** IDEC seri protokolü dokümante olmadığı için PLC çoğu zaman yanıt vermez; yine de denemek isterseniz COM portu ve baud seçin.
+2. **WindLDR penceresini tara (tanı):** WindLDR açıksa bu butonla penceredeki kontroller log’a yazılır; farklı WindLDR sürümü/dil kullanıyorsanız tanı için faydalıdır.
+3. **COM Port / IP:** Serial/Ethernet kullanıyorsanız port veya IP girin (örn: **COM3**).
+4. **COM Portları Listele** ile portları kontrol edebilirsiniz.
+5. **Baud Rate:** Genelde **9600** (IDEC için yaygın).
 
 ---
 
 ## Adım 5: Şifre Aramayı Başlatın
 
-1. **“Şifre Aramayı Başlat”** butonuna tıklayın.
+1. **WindLDR modunda:** WindLDR’ı açın, PLC’ye bağlanmayı deneyin; şifre/bağlantı penceresi açık kalsın. **“Şifre Aramayı Başlat”** ile program bu penceredeki şifre kutusuna yazıp “Bağlan”a basarak şifreleri dener.
 2. Program listedeki şifreleri sırayla dener; ilerleme ve log ekranda görünür.
-3. **Şifre bulunursa** pencerede gösterilir; bu şifreyi **WindLDR’da PLC’ye bağlanırken** şifre alanına yazın.
+3. **Şifre bulunursa** pencerede gösterilir; bu şifreyi WindLDR’da kullanın.
 
 ---
 

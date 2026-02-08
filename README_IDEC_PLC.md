@@ -5,7 +5,7 @@ Windows için IDEC FC4A-HPC3 PLC şifre kurtarma aracı.
 ## Özellikler
 
 - ✅ Otomatik şifre deneme (29 farklı şifre)
-- ✅ USB/Serial ve Ethernet bağlantı desteği
+- ✅ WindLDR otomasyonu (önerilen), USB/Serial (deneysel), **IDEC Pentra Ethernet (port 2101)**
 - ✅ Modern Windows GUI arayüzü
 - ✅ İlerleme çubuğu ve log ekranı
 - ✅ COM port otomatik tespiti
@@ -53,7 +53,8 @@ pyinstaller --onefile --windowed --name "IDEC_PLC_Password_Finder" idec_plc_pass
 1. **Programı açın**
 
 2. **Bağlantı ayarlarını yapın:**
-   - Bağlantı Tipi: USB/Serial veya Ethernet/IP seçin
+   - Bağlantı Tipi: WindLDR (önerilen), USB/Serial, **IDEC Pentra Ethernet (port 2101)** veya Ethernet/IP
+   - **IDEC Pentra (FC5A):** Sadece **MicroSmart Pentra (FC5A)** için. PLC’nin IP adresini girin; şifreler **sadece sayısal** denir (kaynak: [Capkj2/Idec-password-cracker](https://github.com/Capkj2/Idec-password-cracker)). **FC4A ile Pentra aynı değildir** — FC4A için WindLDR veya COM kullanın.
    - COM Port / IP: COM port numarası veya IP adresi girin
    - "COM Portları Listele" butonu ile mevcut portları görebilirsiniz
    - Baud Rate: Serial için 9600 (varsayılan)
@@ -117,6 +118,11 @@ Bu araç sadece:
 Sorunlar için:
 - IDEC Teknik Destek: support@idec.com
 - Model: FC4A-HPC3
+
+## Referanslar / Credits
+
+- **IDEC Pentra Ethernet (port 2101)** protokolü: [Capkj2/Idec-password-cracker](https://github.com/Capkj2/Idec-password-cracker) (C++, K Johnson, 2016) — açık kaynak referansı.
+- Geliştirici: **mertsis**
 
 ## Lisans
 
