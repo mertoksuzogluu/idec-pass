@@ -23,11 +23,12 @@ if errorlevel 1 (
 
 echo.
 echo [2/4] Gerekli paketler yukleniyor...
-pip install pyinstaller pyserial
+pip install -r requirements.txt
+pip install pyinstaller
 
 echo.
-echo [3/4] .exe dosyasi olusturuluyor...
-pyinstaller --onefile --windowed --name "IDEC_PLC_Password_Finder" --icon=NONE idec_plc_password_auto.py
+echo [3/4] .exe dosyasi olusturuluyor (tek dosya, WindLDR + Pentra dahil)...
+pyinstaller --noconfirm IDEC_PLC_Password_Finder.spec
 
 echo.
 echo [4/4] Tamamlandi!

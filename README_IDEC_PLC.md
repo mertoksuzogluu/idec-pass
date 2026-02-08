@@ -31,18 +31,11 @@ Windows için IDEC FC4A-HPC3 PLC şifre kurtarma aracı.
    python idec_plc_password_auto.py
    ```
 
-### Yöntem 3: Kendi .exe Dosyanızı Oluşturun
+### Yöntem 3: Kendi .exe Dosyanızı Oluşturun (her PC'de çalışır)
 
-Windows'ta:
-```bash
-build_windows.bat
-```
+Python yüklü bir Windows PC'de projeyi açın, **EXE_OLUSTUR_WINDOWS.bat** dosyasına çift tıklayın. Oluşan `dist\IDEC_PLC_Password_Finder.exe` dosyasını istediğiniz bilgisayara kopyalayabilirsiniz; o PC'de Python gerekmez.
 
-Veya manuel:
-```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name "IDEC_PLC_Password_Finder" idec_plc_password_auto.py
-```
+Ayrıntılı adımlar: **[EXE_OLUSTURMA.md](EXE_OLUSTURMA.md)**
 
 ## Kullanım Senaryosu (COM Port ile)
 
